@@ -2,13 +2,16 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
 from core.image_processor import ImageProcessor
+from core.matcher import MatcherEngine
 import cv2
 
 class MainCounterTab(ttk.Frame):
     """Handles the UI for the Main Counting screen."""
-    def __init__(self, parent):
+    def __init__(self, parent, count_var):
         super().__init__(parent)
+        self.count_var = count_var
         self.processor = ImageProcessor(max_width=1200)
+        self.engine = MatcherEngine()
         self.tk_image = None 
         self.current_image_path = None
         self.resize_timer = None
@@ -18,6 +21,7 @@ class MainCounterTab(ttk.Frame):
         self.start_x = self.start_y = 0
         self.img_draw_x = self.img_draw_y = 0
         self.current_crop_coords = None
+        self.current_results = []
 
     def setup_ui(self):
         # --- Left Panel (Scrollable Container) ---
@@ -40,29 +44,7 @@ class MainCounterTab(ttk.Frame):
         self.control_canvas.bind_all("<MouseWheel>", self.on_mousewheel)
 
         control_frame = self.control_frame
-        '''
-        left_container = ttk.Frame(self)
-        left_container.pack(side=tk.LEFT, fill=tk.Y)
-        left_container.pack_propagate(False)
 
-        self.control_canvas = tk.Canvas(left_container, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(left_container, orient="vertical", command=self.control_canvas.yview)
-
-        control_frame = ttk.Frame(self.control_canvas, padding=10)
-
-        control_frame.bind(
-            "<Configure>",
-            lambda e: self.control_canvas.configure(
-                scrollregion=self.control_canvas.bbox("all")
-            )
-        )
-        self.control_canvas.create_window((0, 0), window=control_frame, anchor="nw", width=250)
-        self.control_canvas.configure(yscrollcommand=scrollbar.set)
-
-        self.control_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.control_canvas.bind_all("<MouseWheel>", self.on_mousewheel)
-        '''
         ttk.Label(control_frame, text="Setup", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
         ttk.Button(control_frame, text="1. Upload Image", command=self.upload_image).pack(fill=tk.X, pady=2)
         self.btn_select_template = ttk.Button(control_frame, text="2. Select Template", command=self.toggle_crop_mode)
@@ -110,10 +92,10 @@ class MainCounterTab(ttk.Frame):
         self.template_canvas.pack(pady=5)
         
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
-
         ttk.Label(control_frame, text="Execute", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        ttk.Button(control_frame, text="START COUNTING").pack(fill=tk.X, pady=5)
-        ttk.Button(control_frame, text="Reset Current").pack(fill=tk.X)
+        ttk.Button(control_frame, text="START COUNTING", command=self.execute_counting).pack(fill=tk.X, pady=5)
+        ttk.Button(control_frame, text="Clear Results", command=self.clear_results).pack(fill=tk.X)
+        
 
         # --- Right Panel ---
         canvas_frame = ttk.Frame(self, padding=10)
@@ -182,6 +164,9 @@ class MainCounterTab(ttk.Frame):
                 ui_x1, ui_y1, ui_x2, ui_y2, 
                 outline="red", width=2, dash=(4, 4), tags="crop_rect"
             )
+
+        if getattr(self, 'current_results', []):
+            self.draw_results(self.current_results, is_refresh=True)
         
     def on_canvas_resize(self, event):
         if self.processor.original_image is not None:
@@ -192,6 +177,7 @@ class MainCounterTab(ttk.Frame):
 
     
     def toggle_crop_mode(self):
+        self.clear_results()
         if self.processor.original_image is None:
             messagebox.showwarning("Warning", "Please upload an image first!")
             return
@@ -290,6 +276,95 @@ class MainCounterTab(ttk.Frame):
         if frame_height > canvas_height:
             self.control_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
+
+    def clear_results(self):
+        self.main_canvas.delete("result_box")
+        self.current_results = []
+
+        self.count_var.set("TOTAL COUNT: 0")
+
+    def execute_counting(self):
+        if self.processor.original_image is None or self.processor.template_image is None:
+            messagebox.showwarning("Warning", "Please upload an image and select a template first!")
+            return
+
+        is_gray = self.img_mode_var.get() == "grayscale"
+        filter_type = self.filter_var.get()
+        use_ms = self.multi_scale_var.get()
+        use_rot = self.rotation_var.get()
+        ncc_thresh = float(self.ncc_slider.get())
+        nms_thresh = float(self.nms_slider.get())
+
+        print(f"Starting Matcher Engine... (Filter: {filter_type}, Multi-Scale: {use_ms}, Rotation: {use_rot})")
+
+        results = self.engine.match(
+            image=self.processor.original_image,
+            template=self.processor.template_image,
+            conf_thresh=ncc_thresh,
+            nms_thresh=nms_thresh,
+            use_multi_scale=use_ms,
+            use_rotation=use_rot,
+            filter_type=filter_type,
+            is_grayscale=is_gray
+        )
+
+        print(f"Counting Complete!")
+        
+        self.draw_results(results)
+        self.count_var.set(f"TOTAL COUNT: {len(results)}")
+
+
+    def draw_results(self, boxes, is_refresh=False):
+        if not is_refresh:
+            self.clear_results()
+            self.current_results = boxes
+
+        ratio = self.processor.ui_scale_ratio
+
+        for box in boxes:
+            x1, y1, x2, y2, score = box
+            ui_x1 = int(x1 * ratio) + self.img_draw_x
+            ui_y1 = int(y1 * ratio) + self.img_draw_y
+            ui_x2 = int(x2 * ratio) + self.img_draw_x
+            ui_y2 = int(y2 * ratio) + self.img_draw_y
+
+            self.main_canvas.create_rectangle(ui_x1, ui_y1, ui_x2, ui_y2, outline="#00FF00", width=2, tags="result_box")
+
+            center_x, center_y = (ui_x1 + ui_x2) // 2, (ui_y1 + ui_y2) // 2
+            self.main_canvas.create_oval(center_x - 2, center_y - 2, center_x + 2, center_y + 2, fill="#00FF00", outline="#00FF00", tags="result_box")
+
+        if not is_refresh:
+            messagebox.showinfo("Success", f"Counting Complete!\n\nFound {len(boxes)} objects matching your template.")
+
+
+'''  
+    def draw_results(self, boxes):
+        self.clear_results()
+
+        ratio = self.processor.ui_scale_ratio
+
+        for box in boxes:
+            x1, y1, x2, y2, score = box
+
+            ui_x1 = int(x1 * ratio) + self.img_draw_x
+            ui_y1 = int(y1 * ratio) + self.img_draw_y
+            ui_x2 = int(x2 * ratio) + self.img_draw_x
+            ui_y2 = int(y2 * ratio) + self.img_draw_y
+
+            self.main_canvas.create_rectangle(
+                ui_x1, ui_y1, ui_x2, ui_y2,
+                outline="#00FF00", width=2, tags="result_box"
+            )
+
+            center_x = (ui_x1 + ui_x2) // 2
+            center_y = (ui_y1 + ui_y2) // 2
+            self.main_canvas.create_oval(
+                center_x - 2, center_y - 2, center_x + 2, center_y + 2,
+                fill="#00FF00", outline="#00FF00", tags="result_box"
+            )
+
+        messagebox.showinfo("Success", f"Counting Complete!\n\nFound {len(boxes)} objects matching your template.")
+'''
 
 class HistoryTab(ttk.Frame):
     def __init__(self, parent):

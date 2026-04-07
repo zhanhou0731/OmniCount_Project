@@ -7,7 +7,8 @@ OmniCount is a modular, GUI-based desktop application built in Python. It allows
 - [x] Responsive Tkinter UI Shell
 - [x] Dynamic Image Resizing and Coordinate Mapping
 - [x] Interactive UI ROI Cropping Tool 
-- [ ] Matcher Engine (MS-NCC and NMS Algorithms) *(Pending)*
+- [x] Matcher Engine (MS-NCC and NMS Algorithms)
+- [ ] History *(Pending)*
 - [ ] PDF Report Generation *(Pending)*
 
 ## 📁 Project Architecture
@@ -27,6 +28,7 @@ OmniCount_Project/
 ```
 
 ### Step 1: Download the Project
+
 
 ### Step 2: Create the Virtual Environment
 Create an isolated Python environment named ip_venv inside the project folder:
