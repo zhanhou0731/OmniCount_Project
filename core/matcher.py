@@ -2,68 +2,40 @@ import cv2
 import numpy as np
 import imutils
 import concurrent.futures
+from typing import List
 
 class MatcherEngine:
+    """Core mathematics and computer vision engine for object counting."""
+    
     def __init__(self):
-        self.matched_boxes = []
+        self.matched_boxes: List[List[int]] = []
 
-    def match(self, image, template, algorithm="Normalized Cross-Correlation (NCC)",
-              image_mode="grayscale", filter_type="none", use_clahe=False, nms_thresh=0.3,
-              use_multi_scale=True, use_rotation=False, conf_thresh=0.8):
-
-        # 1. PRE-PROCESSING
-        work_img, work_temp = self._preprocess(image, template, image_mode, filter_type, use_clahe)
-
-        # 2. RUN DENSE MATCHER 
+    def match(self, 
+              work_img: np.ndarray, 
+              work_temp: np.ndarray, 
+              algorithm: str = "Normalized Cross-Correlation (NCC)",
+              nms_thresh: float = 0.3,
+              use_multi_scale: bool = True, 
+              use_rotation: bool = False, 
+              conf_thresh: float = 0.8) -> List[List[int]]:
+        """
+        Executes template matching on pre-processed images.
+        Returns a list of boxes [x1, y1, x2, y2, score].
+        """
+        # 1. RUN DENSE MATCHER 
         raw_boxes = self._run_dense_matcher(work_img, work_temp, algorithm, conf_thresh, use_multi_scale, use_rotation)
 
-        # 3. NON-MAXIMUM SUPPRESSION (NMS)
+        # 2. NON-MAXIMUM SUPPRESSION (NMS)
         self.matched_boxes = self._non_max_suppression(raw_boxes, nms_thresh)
         return self.matched_boxes
 
-    def _preprocess(self, img, temp, image_mode, filter_type, use_clahe):
-        w_img = img.copy()
-        w_temp = temp.copy()
-
-        #  Noise Filters
-        w_img = self._apply_filter(w_img, filter_type)
-        w_temp = self._apply_filter(w_temp, filter_type)
-
-        #  CLAHE
-        if use_clahe:
-            w_img = self._apply_clahe(w_img)
-            w_temp = self._apply_clahe(w_temp)
-
-        # C. Image Mode (Grayscale, Color, or Edges)
-        if image_mode in ["grayscale", "edges"]:
-            if len(w_img.shape) == 3: w_img = cv2.cvtColor(w_img, cv2.COLOR_BGR2GRAY)
-            if len(w_temp.shape) == 3: w_temp = cv2.cvtColor(w_temp, cv2.COLOR_BGR2GRAY)
-
-            if image_mode == "edges":
-                w_img = cv2.Canny(w_img, 50, 150)
-                w_temp = cv2.Canny(w_temp, 50, 150)
-
-        return w_img, w_temp
-
-    def _apply_filter(self, img, filter_type):
-        if filter_type == "gaussian":
-            return cv2.GaussianBlur(img, (5, 5), 0)
-        elif filter_type == "bilateral":
-            return cv2.bilateralFilter(img, 9, 75, 75)
-        return img
-
-    def _apply_clahe(self, img):
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        if len(img.shape) == 2: # Grayscale
-            return clahe.apply(img)
-        else: 
-            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-            l, a, b = cv2.split(lab)
-            cl = clahe.apply(l)
-            limg = cv2.merge((cl, a, b))
-            return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-
-    def _run_dense_matcher(self, work_img, work_temp, algorithm, conf_thresh, use_multi_scale, use_rotation):
+    def _run_dense_matcher(self, 
+                          work_img: np.ndarray, 
+                          work_temp: np.ndarray, 
+                          algorithm: str, 
+                          conf_thresh: float, 
+                          use_multi_scale: bool, 
+                          use_rotation: bool) -> List[List[float]]:
         angles_to_check = range(0, 360, 15) if use_rotation else [0]
         raw_boxes = []
 
@@ -81,8 +53,13 @@ class MatcherEngine:
 
         return raw_boxes
 
-    
-    def _extract_top_matches(self, res, w, h, conf_thresh, algorithm, limit=1000):
+    def _extract_top_matches(self, 
+                             res: np.ndarray, 
+                             w: int, 
+                             h: int, 
+                             conf_thresh: float, 
+                             algorithm: str, 
+                             limit: int = 1000) -> List[List[float]]:
         boxes = []
         is_ncc = (algorithm == "Normalized Cross-Correlation (NCC)")
 
@@ -100,12 +77,16 @@ class MatcherEngine:
             valid_y, valid_x = valid_y[best_idx], valid_x[best_idx]
 
         for x, y in zip(valid_x, valid_y):
-            score = res[y, x] if is_ncc else (1.0 - res[y, x])
-            boxes.append([x, y, x + w, y + h, score])
+            score = float(res[y, x] if is_ncc else (1.0 - res[y, x]))
+            boxes.append([int(x), int(y), int(x + w), int(y + h), score])
             
         return boxes
 
-    def _single_scale_match(self, img, template, conf_thresh, algorithm):
+    def _single_scale_match(self, 
+                           img: np.ndarray, 
+                           template: np.ndarray, 
+                           conf_thresh: float, 
+                           algorithm: str) -> List[List[float]]:
         h, w = template.shape[:2]
         if w > img.shape[1] or h > img.shape[0]: return []
         
@@ -114,7 +95,11 @@ class MatcherEngine:
         
         return self._extract_top_matches(res, w, h, conf_thresh, algorithm)
 
-    def _multi_scale_match(self, img, template, conf_thresh, algorithm):
+    def _multi_scale_match(self, 
+                          img: np.ndarray, 
+                          template: np.ndarray, 
+                          conf_thresh: float, 
+                          algorithm: str) -> List[List[float]]:
         boxes = []
         scales = np.linspace(0.5, 1.5, 10)
         meth = cv2.TM_CCOEFF_NORMED if algorithm == "Normalized Cross-Correlation (NCC)" else cv2.TM_SQDIFF_NORMED
@@ -131,28 +116,30 @@ class MatcherEngine:
             
         return boxes
 
-    def _non_max_suppression(self, boxes, nms_thresh):
-        if len(boxes) == 0: return []
-        boxes = np.array(boxes)
-        pick = []
-        x1, y1, x2, y2, scores = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3], boxes[:, 4]
+    def _non_max_suppression(self, 
+                             boxes: List[List[float]], 
+                             nms_thresh: float) -> List[List[int]]:
+        if not boxes: return []
+        
+        boxes_np = np.array(boxes)
+        x1, y1, x2, y2, scores = boxes_np[:, 0], boxes_np[:, 1], boxes_np[:, 2], boxes_np[:, 3], boxes_np[:, 4]
         areas = (x2 - x1 + 1) * (y2 - y1 + 1)
         order = np.argsort(scores)
 
+        pick = []
         while len(order) > 0:
-            last = len(order) - 1
-            i = order[last]
+            i = order[-1]
             pick.append(i)
 
-            xx1 = np.maximum(x1[i], x1[order[:last]])
-            yy1 = np.maximum(y1[i], y1[order[:last]])
-            xx2 = np.minimum(x2[i], x2[order[:last]])
-            yy2 = np.minimum(y2[i], y2[order[:last]])
+            xx1 = np.maximum(x1[i], x1[order[:-1]])
+            yy1 = np.maximum(y1[i], y1[order[:-1]])
+            xx2 = np.minimum(x2[i], x2[order[:-1]])
+            yy2 = np.minimum(y2[i], y2[order[:-1]])
 
             w = np.maximum(0, xx2 - xx1 + 1)
             h = np.maximum(0, yy2 - yy1 + 1)
 
-            overlap = (w * h) / (areas[i] + areas[order[:last]] - (w * h))
-            order = np.delete(order, np.concatenate(([last], np.where(overlap > nms_thresh)[0])))
+            overlap = (w * h) / (areas[i] + areas[order[:-1]] - (w * h))
+            order = np.delete(order, np.concatenate(([len(order)-1], np.where(overlap > nms_thresh)[0])))
 
-        return boxes[pick].astype("int").tolist()
+        return boxes_np[pick].astype("int").tolist()

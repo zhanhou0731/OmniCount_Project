@@ -74,10 +74,11 @@ class PDFReportGenerator:
             if img_bgr is None:
                 raise FileNotFoundError("Could not load image.")
 
-            boxes = json.loads(r_boxes_json)
+            abs_boxes = json.loads(r_boxes_json)
+            rel_boxes = temp_processor.from_original_coords(abs_boxes)
             
             # Draw the boxes
-            for box in boxes:
+            for box in rel_boxes:
                 x1, y1, x2, y2, score = box
                 cv2.rectangle(img_bgr, (x1, y1), (x2, y2), (0, 255, 0), 3)
                 
