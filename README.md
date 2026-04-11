@@ -2,14 +2,14 @@
 
 OmniCount is a modular, GUI-based desktop application built in Python. It allows users to upload an image, interactively define a custom Region of Interest (ROI) template, and automatically count repeating objects using Multi-Scale Normalized Cross-Correlation (MS-NCC) and Non-Maximum Suppression (NMS).
 
-## 🚀 Current Status: Phase 1 Complete
+## 🚀 Current Status: 
 - [x] Object-Oriented Application Architecture
 - [x] Responsive Tkinter UI Shell
 - [x] Dynamic Image Resizing and Coordinate Mapping
 - [x] Interactive UI ROI Cropping Tool 
 - [x] Matcher Engine (MS-NCC and NMS Algorithms)
-- [ ] History *(Pending)*
-- [ ] PDF Report Generation *(Pending)*
+- [x] History
+- [x] PDF Report Generation
 
 ## 📁 Project Architecture
 ```text
@@ -21,9 +21,10 @@ OmniCount_Project/
 │   └── tabs.py              # Front-end UI and event listeners
 ├── core/                    
 │   ├── image_processor.py   # Preprocessing and coordinate mapping
+|   ├── database.py
 │   └── matcher.py           # Core mathematics and computer vision engine
 └── utils/                   
-    └── report_gen.py        # PDF exporting logic
+    └── pdf_generator.py        # PDF exporting logic
 
 ```
 
