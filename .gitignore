@@ -12,3 +12,6 @@ __pycache__/
 Thumbs.db
 
 .ipynb_checkpoints
+
+#history folder
+history/

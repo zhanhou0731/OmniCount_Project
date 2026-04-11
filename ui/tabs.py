@@ -1,9 +1,13 @@
+from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
 from core.image_processor import ImageProcessor
 from core.matcher import MatcherEngine
 import cv2
+from core.database import DatabaseManager
+import os
+from utils.pdf_generator import PDFReportGenerator
 
 class MainCounterTab(ttk.Frame):
     def __init__(self, parent, count_var):
@@ -33,6 +37,10 @@ class MainCounterTab(ttk.Frame):
         self.img_draw_x = self.img_draw_y = 0
         self.current_crop_coords = None
         self.current_results = []
+
+        self.db = DatabaseManager()
+        self.saved_orig_path = None
+        self.saved_temp_path = None
 
     def setup_ui(self):
         # --- Left Panel (Scrollable Container) ---
@@ -136,6 +144,8 @@ class MainCounterTab(ttk.Frame):
             self.processor.load_image(file_path)
             self.current_crop_coords = None
             self.current_image_path = file_path
+            self.saved_orig_path = self.db.save_original_image(file_path)
+            self.saved_temp_path = None
             self.refresh_canvas()
         except Exception as e:
             messagebox.showerror("Upload Error", f"Failed to load image:\n{str(e)}")
@@ -217,6 +227,7 @@ class MainCounterTab(ttk.Frame):
 
         template = self.processor.crop_template(real_start_x, real_start_y, real_end_x, real_end_y)
         if template is not None:
+            self.saved_temp_path = self.db.save_template_image(template)
             self.update_template_preview()
 
     def update_template_preview(self):
@@ -279,6 +290,31 @@ class MainCounterTab(ttk.Frame):
         self.draw_results(results)
         self.count_var.set(f"TOTAL COUNT: {len(results)}")
 
+        db = DatabaseManager()
+        
+        params = []
+        if filter_type != "none": params.append(f"Filter:{filter_type}")
+        if use_clahe: params.append("CLAHE")
+        if use_ms: params.append("Multi-Scale")
+        if use_rot: params.append("Rotation")
+        params_str = ", ".join(params) if params else "None"
+
+        self.db.save_record(
+            saved_orig_path=self.saved_orig_path,
+            saved_temp_path=self.saved_temp_path,
+            algorithm=algo,
+            mode=img_mode,
+            params_str=params_str,
+            conf=conf_thresh,
+            nms=nms_thresh,
+            total_count=len(results),
+            boxes=results
+        )
+
+        history_tab = self.master.children.get('!historytab')
+        if history_tab:
+            history_tab.refresh_table()
+
     def draw_results(self, boxes, is_refresh=False):
         if not is_refresh:
             self.clear_results()
@@ -300,24 +336,231 @@ class MainCounterTab(ttk.Frame):
         if not is_refresh:
             messagebox.showinfo("Success", f"Counting Complete!\n\nFound {len(boxes)} objects matching your template.")
 
-# [HistoryTab class remains exactly as you had it]
+
 class HistoryTab(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
+        self.db = DatabaseManager()
         self.setup_ui()
+        self.refresh_table()
 
     def setup_ui(self):
         action_frame = ttk.Frame(self, padding=10)
         action_frame.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(action_frame, text="Export Selected to PDF").pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Clear History").pack(side=tk.RIGHT, padx=5)
+        left_action_frame = ttk.Frame(action_frame)
+        left_action_frame.pack(side=tk.LEFT)
 
-        columns = ("id", "time", "image", "mode", "conf", "nms", "count")
+        ttk.Button(left_action_frame, text="Export Selected to PDF", command=self.export_pdf).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(left_action_frame, text="💡 Hint: Hold Ctrl or Shift to select multiple rows", 
+                  font=("Arial", 9, "italic"), foreground="gray").pack(side=tk.LEFT, padx=10)
+        
+        ttk.Button(action_frame, text="Clear History", command=self.clear_history).pack(side=tk.RIGHT, padx=5)
+
+        columns = ("id", "time", "image", "algo", "mode", "conf", "nms", "count")
         self.tree = ttk.Treeview(self, columns=columns, show="headings")
         
-        headings = ["ID", "Time", "Image Name", "Mode", "Conf.", "NMS Overlap", "Total Count"]
-        for col, heading in zip(columns, headings):
+        headings = ["ID", "Time", "Image Name", "Algorithm", "Mode", "Conf.", "NMS", "Total Count"]
+        widths = [40, 140, 120, 200, 80, 50, 50, 80]
+        for col, heading, w in zip(columns, headings, widths):
             self.tree.heading(col, text=heading)
-            self.tree.column(col, anchor=tk.CENTER, width=100)
+            self.tree.column(col, anchor=tk.CENTER, width=w)
         
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
+
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.bind("<Double-1>", self.on_row_double_click)
+
+
+    def refresh_table(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        records = self.db.get_all_records()
+        
+        for record in records:
+            r_id, r_time, r_img_path, r_algo, r_mode, r_conf, r_nms, r_count = record
+            
+            filename = os.path.basename(r_img_path)
+            
+            self.tree.insert("", tk.END, values=(r_id, r_time, filename, r_algo, r_mode, f"{r_conf:.2f}", f"{r_nms:.2f}", r_count))
+
+    def on_row_double_click(self, event):
+        selected_item = self.tree.selection()
+        if not selected_item:
+            return
+            
+        row_values = self.tree.item(selected_item[0])['values']
+        record_id = row_values[0] 
+        
+        full_record = self.db.get_record_by_id(record_id)
+        
+        if full_record:
+            self.show_preview_window(full_record)
+        else:
+            messagebox.showerror("Error", "Could not load record details from database.")
+
+
+    def show_preview_window(self, record):
+        
+        r_id, r_time, r_orig, r_temp, r_algo, r_mode, r_params, r_conf, r_nms, r_count, r_boxes_json = record
+        
+        preview_win = tk.Toplevel(self)
+        preview_win.title(f"Detailed Report: Record #{r_id}")
+        preview_win.geometry("900x600")
+        preview_win.configure(bg="#2b2b2b")
+
+        # Layout: Left side for image, Right side for text
+        left_frame = ttk.Frame(preview_win, padding=10)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # ---  Scrollable Right Panel ---
+        right_container = ttk.Frame(preview_win)
+        right_container.pack(side=tk.RIGHT, fill=tk.Y)
+
+        right_canvas = tk.Canvas(right_container, highlightthickness=0, width=280)
+        right_scrollbar = ttk.Scrollbar(right_container, orient="vertical", command=right_canvas.yview)
+        right_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        right_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right_canvas.configure(yscrollcommand=right_scrollbar.set)
+
+        right_frame = ttk.Frame(right_canvas, padding=20)
+        right_frame_id = right_canvas.create_window((0, 0), window=right_frame, anchor="nw")
+
+        right_frame.bind("<Configure>", lambda e: right_canvas.configure(scrollregion=right_canvas.bbox("all")))
+        right_canvas.bind("<Configure>", lambda e: right_canvas.itemconfig(right_frame_id, width=e.width))
+
+        # Enable Mousewheel scrolling
+        def _on_mousewheel(event):
+            if right_frame.winfo_reqheight() > right_canvas.winfo_height():
+                right_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                
+        preview_win.bind("<MouseWheel>", _on_mousewheel)
+        
+        try:
+            temp_processor = ImageProcessor(max_width=1200)
+            temp_processor.load_image(r_orig)
+            img_bgr = temp_processor.original_image.copy()
+            
+            if img_bgr is None:
+                raise FileNotFoundError(f"Could not load image at: {r_orig}")
+            
+            import json
+            boxes = json.loads(r_boxes_json)
+            
+            for box in boxes:
+                x1, y1, x2, y2, score = box
+                cv2.rectangle(img_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
+            h, w = img_bgr.shape[:2]
+            scale = min(600/w, 600/h)
+            new_w, new_h = int(w * scale), int(h * scale)
+            img_resized = cv2.resize(img_bgr, (new_w, new_h))
+            
+            img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(img_rgb)
+            tk_img = ImageTk.PhotoImage(pil_img)
+            
+            img_lbl = tk.Label(left_frame, image=tk_img, bg="#2b2b2b")
+            img_lbl.image = tk_img # Prevent garbage collection!
+            img_lbl.pack(expand=True)
+            
+        except Exception as e:
+            tk.Label(left_frame, text=f"Image Error:\n{str(e)}", fg="red", bg="#2b2b2b").pack(expand=True)
+
+        #right panel
+        title_font = ("Arial", 14, "bold")
+        data_font = ("Arial", 11)
+        
+        ttk.Label(right_frame, text="Execution Summary", font=title_font).pack(anchor=tk.W, pady=(0, 10))
+        
+        # ---  Display the Template Image ---
+        ttk.Label(right_frame, text="Template Searched:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        try:
+            temp_bgr = cv2.imread(r_temp)
+            if temp_bgr is not None:
+                temp_rgb = cv2.cvtColor(temp_bgr, cv2.COLOR_BGR2RGB)
+                pil_temp = Image.fromarray(temp_rgb)
+                pil_temp.thumbnail((100, 100)) 
+                tk_temp = ImageTk.PhotoImage(pil_temp)
+                
+                temp_lbl = tk.Label(right_frame, image=tk_temp, bg="#2b2b2b", highlightthickness=1, highlightbackground="#555555")
+                temp_lbl.image = tk_temp # Prevent garbage collection!
+                temp_lbl.pack(anchor=tk.W, pady=(5, 15))
+            else:
+                ttk.Label(right_frame, text="[Template file missing]").pack(anchor=tk.W, pady=(5, 15))
+        except Exception as e:
+            print(f"Preview Template Error: {e}")
+
+        # The Parameter List
+        details = [
+            ("Time:", r_time),
+            ("Algorithm:", r_algo),
+            ("Image Mode:", r_mode.title()),
+            ("Parameters:", r_params),
+            ("Confidence Threshold:", f"{r_conf:.2f}"),
+            ("NMS Overlap:", f"{r_nms:.2f}"),
+        ]
+        
+        for label, val in details:
+            ttk.Label(right_frame, text=label, font=("Arial", 9, "bold")).pack(anchor=tk.W, pady=(5,0))
+            ttk.Label(right_frame, text=str(val), font=data_font, wraplength=200).pack(anchor=tk.W)
+            
+        ttk.Separator(right_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=20)
+        
+        ttk.Label(right_frame, text="FINAL COUNT", font=("Arial", 12, "bold")).pack(anchor=tk.CENTER)
+        count_lbl = tk.Label(right_frame, text=str(r_count), font=("Arial", 48, "bold"), fg="#00FF00")
+        count_lbl.pack(anchor=tk.CENTER, pady=10)
+
+
+    def export_pdf(self):
+        selected_items = self.tree.selection()
+        
+        if not selected_items:
+            messagebox.showwarning("Warning", "Please select at least one record to export!\n(Hold Ctrl/Shift to select multiple)")
+            return
+            
+        record_ids = []
+        for item in selected_items:
+            row_values = self.tree.item(item)['values']
+            record_ids.append(row_values[0]) # ID is the first column
+            
+        default_name = f"OmniCount_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+        filepath = filedialog.asksaveasfilename(
+            title="Save PDF Report",
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf")]
+        )
+        
+        if not filepath:
+            return
+            
+        try:
+            pdf_gen = PDFReportGenerator(self.db)
+            pdf_gen.generate_report(record_ids, filepath)
+            
+            messagebox.showinfo("Success", f"PDF Report successfully generated!\nSaved to: {filepath}")
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to generate PDF:\n{str(e)}")
+
+
+    def clear_history(self):
+
+        confirm = messagebox.askyesno(
+            "Clear History", 
+            "Are you sure you want to delete ALL history records and saved images?\n\nThis cannot be undone."
+        )
+        
+        if confirm:
+            try:
+                self.db.clear_all_records()
+                
+                self.refresh_table()
+                
+                messagebox.showinfo("Success", "History and saved files have been completely cleared.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to clear history:\n{str(e)}")
