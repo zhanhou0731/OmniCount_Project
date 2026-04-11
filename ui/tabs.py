@@ -85,7 +85,8 @@ class MainCounterTab(ttk.Frame):
         filter_dropdown.pack(fill=tk.X, pady=(0, 5))
         filter_dropdown.unbind_class("TCombobox", "<MouseWheel>")
 
-        ttk.Checkbutton(control_frame, text="CLAHE Enhancement", variable=self.clahe_var).pack(anchor=tk.W, pady=(5, 5))
+        ttk.Label(control_frame, text="Enhancements:").pack(anchor=tk.W, pady=(5, 0))
+        ttk.Checkbutton(control_frame, text="CLAHE", variable=self.clahe_var).pack(anchor=tk.W, pady=(5, 5))
         ttk.Checkbutton(control_frame, text="Multi-Scale Matching", variable=self.multi_scale_var).pack(anchor=tk.W)
         ttk.Checkbutton(control_frame, text="Rotation Invariance", variable=self.rotation_var).pack(anchor=tk.W, pady=(0, 5))
 
