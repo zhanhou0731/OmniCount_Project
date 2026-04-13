@@ -50,7 +50,7 @@ class PDFReportGenerator:
             r_id, r_time, r_orig, r_temp, r_algo, r_mode, r_params, r_conf, r_nms, r_count, r_json = r
             pdf.cell(20, 10, str(r_id), border=1, align='C')
             pdf.cell(50, 10, r_time, border=1, align='C')
-            pdf.cell(85, 10, r_algo[:30], border=1, align='C') # Truncate long names
+            pdf.cell(85, 10, r_algo[:35], border=1, align='C')
             pdf.cell(35, 10, str(r_count), border=1, align='C')
             pdf.ln()
 
@@ -128,7 +128,6 @@ class PDFReportGenerator:
         pdf.set_font("Arial", 'B', 10)
         pdf.cell(0, 5, "Template Searched:", ln=True)
         if os.path.exists(r_temp):
-            # x=15 to align with margin, w=30mm for a nice small thumbnail
             pdf.image(r_temp, x=15, w=30) 
         
         # --- CLEANUP ---
