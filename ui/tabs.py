@@ -87,6 +87,7 @@ class MainCounterTab(ttk.Frame):
         self.algo_dropdown = ttk.Combobox(cf, textvariable=self.algo_var, state="readonly")
         self.algo_dropdown['values'] = (self.ncc_name, self.ssd_name)
         self.algo_dropdown.pack(fill=tk.X, pady=(0, 5))
+        self.algo_dropdown.unbind_class("TCombobox", "<MouseWheel>")
 
         ttk.Label(cf, text="Image Mode:").pack(anchor=tk.W, pady=(5, 0))
         ttk.Radiobutton(cf, text="Grayscale (Fast)", variable=self.img_mode_var, value="grayscale").pack(anchor=tk.W)
@@ -95,8 +96,9 @@ class MainCounterTab(ttk.Frame):
 
         ttk.Label(cf, text="Noise Filter:").pack(anchor=tk.W, pady=(5, 0))
         filter_dropdown = ttk.Combobox(cf, textvariable=self.filter_var, state="readonly")
-        filter_dropdown['values'] = ("none", "gaussian", "bilateral")
+        filter_dropdown['values'] = ("none", "gaussian", "bilateral", "average", "median")
         filter_dropdown.pack(fill=tk.X, pady=(0, 5))
+        filter_dropdown.unbind_class("TCombobox", "<MouseWheel>")
 
         ttk.Label(cf, text="Enhancements:").pack(anchor=tk.W, pady=(5, 0))
         ttk.Checkbutton(cf, text="CLAHE", variable=self.clahe_var).pack(anchor=tk.W, pady=(5, 5))

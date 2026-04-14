@@ -84,6 +84,10 @@ class ImageProcessor:
             processed = cv2.GaussianBlur(processed, (5, 5), 0)
         elif filter_type == "bilateral":
             processed = cv2.bilateralFilter(processed, 9, 75, 75)
+        elif filter_type == "average":
+            processed = cv2.blur(processed, (5, 5))
+        elif filter_type == "median":
+            processed = cv2.medianBlur(processed, 5)
 
         # 2. CLAHE Enhancement
         if use_clahe:
