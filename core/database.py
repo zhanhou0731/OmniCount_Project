@@ -2,6 +2,7 @@ import sqlite3
 import os
 import shutil
 import json
+import sys
 import cv2
 import numpy as np
 from datetime import datetime
@@ -12,7 +13,15 @@ class DatabaseManager:
     """Manages SQLite database operations and file storage for the OmniCount system."""
     
     def __init__(self, base_dir: str = "history"):
-        self.base_dir = base_dir
+        # Detect if running as an exe
+        if getattr(sys, 'frozen', False):
+            # The directory where the .exe file is located
+            app_dir = os.path.dirname(sys.executable)
+            self.base_dir = os.path.join(app_dir, base_dir)
+        else:
+            # Standard execution
+            self.base_dir = base_dir
+
         self.db_path = os.path.join(self.base_dir, "omnicount.db")
         self.img_dir = os.path.join(self.base_dir, "original_images")
         self.temp_dir = os.path.join(self.base_dir, "templates")
