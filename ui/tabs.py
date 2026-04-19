@@ -90,8 +90,8 @@ class MainCounterTab(ttk.Frame):
         self.algo_dropdown.unbind_class("TCombobox", "<MouseWheel>")
 
         ttk.Label(cf, text="Image Mode:").pack(anchor=tk.W, pady=(5, 0))
-        ttk.Radiobutton(cf, text="Grayscale (Fast)", variable=self.img_mode_var, value="grayscale").pack(anchor=tk.W)
-        ttk.Radiobutton(cf, text="Color (RGB)", variable=self.img_mode_var, value="color").pack(anchor=tk.W)
+        ttk.Radiobutton(cf, text="Grayscale", variable=self.img_mode_var, value="grayscale").pack(anchor=tk.W)
+        ttk.Radiobutton(cf, text="Colour", variable=self.img_mode_var, value="color").pack(anchor=tk.W)
         ttk.Radiobutton(cf, text="Edges", variable=self.img_mode_var, value="edges").pack(anchor=tk.W)
 
         ttk.Label(cf, text="Noise Filter:").pack(anchor=tk.W, pady=(5, 0))
@@ -274,7 +274,10 @@ class HistoryTab(ttk.Frame):
         ttk.Button(action_frame, text="Export Selected to PDF", command=self.export_pdf).pack(side=tk.LEFT, padx=5)
         ttk.Label(action_frame, text="💡 Hint: Hold Ctrl or Shift to select multiple rows", 
                   font=("Arial", 9, "italic"), foreground="gray").pack(side=tk.LEFT, padx=10)
+        
+        # Right-side buttons
         ttk.Button(action_frame, text="Clear History", command=self.clear_history).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(action_frame, text="Delete Selected", command=self.delete_selected).pack(side=tk.RIGHT, padx=5)
 
         columns = ("id", "time", "image", "algo", "mode", "conf", "nms", "count")
         self.tree = ttk.Treeview(self, columns=columns, show="headings")
@@ -416,6 +419,21 @@ class HistoryTab(ttk.Frame):
                 messagebox.showinfo("Success", f"Report saved to {filepath}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to generate PDF: {e}")
+
+    def delete_selected(self):
+        selected_items = self.tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Warning", "Select at least one record to delete!")
+            return
+            
+        if messagebox.askyesno("Delete Records", f"Are you sure you want to delete {len(selected_items)} selected records?"):
+            record_ids = [self.tree.item(i)['values'][0] for i in selected_items]
+            try:
+                self.db.delete_records(record_ids)
+                self.refresh_table()
+                messagebox.showinfo("Success", f"Successfully deleted {len(record_ids)} records.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete records: {e}")
 
     def clear_history(self):
         if messagebox.askyesno("Clear History", "Delete ALL records?"):

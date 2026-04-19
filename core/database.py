@@ -106,6 +106,42 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM history_records WHERE id=?", (record_id,))
             return cursor.fetchone()
 
+    def delete_records(self, record_ids: List[int]):
+        """Deletes specific records from the database and removes their associated files if not used elsewhere."""
+        if not record_ids:
+            return
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            for r_id in record_ids:
+                # 1. Fetch file paths for the record to be deleted
+                cursor.execute("SELECT image_path, template_path FROM history_records WHERE id=?", (r_id,))
+                row = cursor.fetchone()
+                if row:
+                    img_path, temp_path = row
+                    
+                    # 2. Delete database entry first so it's not counted in the reference check
+                    cursor.execute("DELETE FROM history_records WHERE id=?", (r_id,))
+                    
+                    # 3. Check for other references before deleting physical files
+                    for p in [img_path, temp_path]:
+                        if p and os.path.exists(p):
+                            # Count how many OTHER records still use this file
+                            cursor.execute("SELECT COUNT(*) FROM history_records WHERE image_path=? OR template_path=?", (p, p))
+                            count = cursor.fetchone()[0]
+                            
+                            if count == 0:
+                                try:
+                                    os.remove(p)
+                                    print(f"[DATABASE] Deleted unused file: {p}")
+                                except Exception as e:
+                                    print(f"[DATABASE] Error deleting file {p}: {e}")
+                            else:
+                                print(f"[DATABASE] File still in use by {count} other records, skipping file deletion: {p}")
+            
+            conn.commit()
+        print(f"[DATABASE] Successfully processed deletion for {len(record_ids)} records.")
+
     def clear_all_records(self):
         """Deletes all database records and associated image files."""
         for directory in [self.img_dir, self.temp_dir]:
